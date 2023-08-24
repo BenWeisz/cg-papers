@@ -4,6 +4,8 @@
 #include "SDL.h"
 #include "glad/glad.h"
 
+#include "stb_image.h"
+
 #include <iostream>
 
 #define ArrayCount(X) (sizeof(X)/sizeof(*X))
@@ -126,6 +128,7 @@ static m3 RotationZ(float Angle) {
 struct vertex {
     v3 Position;
     v3 Color;
+    v2 UV;
 };
 
 static char *ReadFile(const char *FileName) {
@@ -141,13 +144,13 @@ static char *ReadFile(const char *FileName) {
 }
 
 static vertex MeshData[] = {
-    { { 0.5f,  0.5f, 0.0f }, { 1.0f, 0.0f, 0.0f } },
-    { { -0.5f,  0.5f, 0.0f }, { 1.0f, 1.0f, 0.0f } },
-    { { -0.5f, -0.5f, 0.0f }, { 0.0f, 1.0f, 0.0f } },
+    { { 0.5f,  0.5f, 0.0f }, { 1.0f, 0.0f, 0.0f }, { 1.0f, 1.0f } },
+    { { -0.5f,  0.5f, 0.0f }, { 1.0f, 1.0f, 0.0f }, { 0.0f, 1.0f }},
+    { { -0.5f, -0.5f, 0.0f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f } },
     
-    { { 0.5f,  0.5f, 0.0f }, { 1.0f, 0.0f, 0.0f } },
-    { { 0.5f, -0.5f, 0.0f }, { 0.0f, 0.0f, 1.0f } },
-    { { -0.5f, -0.5f, 0.0f }, { 0.0f, 1.0f, 0.0f } },
+    { { 0.5f,  0.5f, 0.0f }, { 1.0f, 0.0f, 0.0f }, { 1.0f, 1.0f } },
+    { { 0.5f, -0.5f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 0.0f } },
+    { { -0.5f, -0.5f, 0.0f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f }},
 };
 
 static int CompileShader(GLuint *Shader, const char *VertexShader, const char *FragmentShader) {
@@ -279,11 +282,38 @@ int main(int, char **) {
     }
     
     GLuint Shader;
-    if(LoadShader(&Shader, "default.vs", "default.fs")) {
+    if(LoadShader(&Shader, "texture.vs", "texture.fs")) {
         fprintf(stderr, "shader compilation failed\n");
         return -1;
     }
-    
+
+    // Load the image
+    int Width, Height, Channels;
+    stbi_set_flip_vertically_on_load(true);
+    unsigned char *CactusImage = stbi_load("cactus.jpg", &Width, &Height, &Channels, 0);
+
+    unsigned int CactusTexture;
+    glGenTextures(1, &CactusTexture);  
+    glBindTexture(GL_TEXTURE_2D, CactusTexture);  
+
+    // Set up some texture parameters ( According to learnopengl.com )
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_MIRRORED_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_MIRRORED_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+    std::cout << "We have data: " << (CactusImage != nullptr) << std::endl;
+
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, Width, Height, 0, GL_RGB, GL_UNSIGNED_BYTE, CactusImage);
+    glGenerateMipmap(GL_TEXTURE_2D);
+
+    // Free the image data
+    stbi_image_free(CactusImage);
+
+    glBindTexture(GL_TEXTURE_2D, 0);
+
     GLuint VAO, VBO;
     glGenBuffers(1, &VBO);
     glGenVertexArrays(1, &VAO);
@@ -291,10 +321,12 @@ int main(int, char **) {
     glBindVertexArray(VAO);
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
     glBufferData(GL_ARRAY_BUFFER, sizeof(MeshData), MeshData, GL_STATIC_DRAW);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6*sizeof(GLfloat), (void *)(0));
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6*sizeof(GLfloat), (void *)(3*sizeof(GLfloat)));
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8*sizeof(GLfloat), (void *)(0));
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 8*sizeof(GLfloat), (void *)(3*sizeof(GLfloat)));
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8*sizeof(GLfloat), (void *)(6*sizeof(GLfloat)));
     glEnableVertexAttribArray(0);
     glEnableVertexAttribArray(1);
+    glEnableVertexAttribArray(2);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     
     glCheck(glEnable(GL_FRAMEBUFFER_SRGB));
@@ -350,8 +382,6 @@ int main(int, char **) {
             AngleY += 0.004f*DeltaMouseX;
         }
         
-        std::cout << DeltaMouseX << std::endl;
-        
         glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
         glCheck(glClear(GL_COLOR_BUFFER_BIT));
         
@@ -361,10 +391,12 @@ int main(int, char **) {
         glCheck(glUseProgram(Shader));
         //glCheck(glUniform2fv(glGetUniformLocation(Shader, "ModelP"), 1, ModelPosition));
         glCheck(glUniformMatrix3fv(glGetUniformLocation(Shader, "R"), 1, GL_FALSE, R.data()));
-        
+
+        glCheck(glBindTexture(GL_TEXTURE_2D, CactusTexture));
         glCheck(glBindVertexArray(VAO));
         glCheck(glDrawArrays(GL_TRIANGLES, 0, 6));
         glCheck(glBindVertexArray(0));
+        glCheck(glBindTexture(GL_TEXTURE_2D, 0));
         
         glCheck(glUseProgram(0));
 
@@ -372,7 +404,6 @@ int main(int, char **) {
         
         Uint32 CurrTicks = SDL_GetTicks();
         DeltaTime = ((CurrTicks - LastTicks)/1000.0f);
-        std::cout << DeltaTime << std::endl;
         LastTicks = CurrTicks;
     }
     
